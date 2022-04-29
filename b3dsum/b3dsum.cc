@@ -1,4 +1,83 @@
+// For now, let's just try to hash a single chunk.
+
+#include <algorithm>
+#include <array>
+#include <cstdint>
 #include <cstdio>
-int main() {
-    std::puts("nothing yet");
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <tinyopt/tinyopt.h>
+
+using std::uint64_t;
+using hash_t = std::array<std::byte, 32>;
+
+hash_t run_one_chunk(const std::byte*, std::size_t) {
+    hash_t h;
+    std::fill(h.begin(), h.end(), std::byte{0});
+    return h;
+}
+
+const char* usage_info =
+    "[OPTION] [FILE]\n"
+    "\n"
+    "  -z, --zero=LEN          hash an all-zero document of LEN bytes\n"
+    "  -h, --help              print usage information and exit\n"
+    "\n"
+    "Specify either a FILE or a zero document with -z.\n"
+    "The maximum FILE size or zero length is 1024.\n";
+
+int main(int argc, char** argv) {
+    std::vector<std::byte> source(1024);
+
+    try {
+        auto help = [argv0 = argv[0]] { to::usage(argv0, usage_info); };
+
+        std::string file;
+        std::optional<uint64_t> zero;
+
+        to::option opts[] = {
+            { to::action(help), to::flag, to::exit, "-h", "--help" },
+            { zero, "-z", "--zero" },
+            { file, to::single },
+        };
+
+        if (!to::run(opts, argc, argv+1)) return 0;
+        if (argv[1]) throw to::option_error("unrecogonized argument", argv[1]);
+        if (!(file.empty() ^ !zero)) throw to::option_error("either a FILE or -z must be provied");
+
+        if (zero) {
+            if (zero.value()>source.size()) throw to::option_error("maximum document size is 1024");
+            source.resize(zero.value());
+        }
+        else {
+            std::FILE* f = std::fopen(file.c_str(), "rb");
+            if (!f) throw to::option_error("unable to open specified file");
+
+            std::size_t n = std::fread(source.data(), 1, source.size(), f);
+            if (std::ferror(f)) throw std::runtime_error("error reading specified file");
+            if (n==1024 && std::fgetc(f)!=EOF) throw std::runtime_error("maximum document size is 1024");
+
+            if (n<source.size()) source.resize(n);
+            std::fclose(f);
+        }
+    }
+    catch (to::option_error& e) {
+        to::usage_error(argv[0], usage_info, e.what());
+        return 1;
+    }
+    catch (std::runtime_error& e) {
+        std::cerr << argv[0] << ": " << e.what() << '\n';
+        return 1;
+    }
+
+
+    hash_t result = run_one_chunk(source.data(), source.size());
+
+    for (auto b: result) {
+        std::printf("%02hhx", std::to_integer<unsigned char>(b));
+    }
+    std::puts("");
+    return 0;
 }

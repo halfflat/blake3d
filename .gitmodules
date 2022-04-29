@@ -1,3 +1,6 @@
 [submodule "test/googletest"]
 	path = test/googletest
 	url = https://github.com/google/googletest
+[submodule "b3dsum/tinyopt"]
+	path = b3dsum/tinyopt
+	url = https://github.com/halfflat/tinyopt

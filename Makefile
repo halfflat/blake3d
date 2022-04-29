@@ -22,7 +22,7 @@ vpath %.cc $(top)test
 
 OPTFLAGS?=-O3 -march=native
 #OPTFLAGS?=-O0 -fsanitize=address
-CXXFLAGS+=$(OPTFLAGS) -MMD -MP -std=c++14 -g -pthread
+CXXFLAGS+=$(OPTFLAGS) -MMD -MP -std=c++17 -g -pthread
 CPPFLAGS+=-isystem $(gtest-inc) -I $(top)include
 
 depends:=$(patsubst %.cc, %.d, $(all-src)) gtest.d
@@ -45,6 +45,7 @@ libblake3d.a: $(lib-obj)
 # command-line tool
 
 b3dsum-obj:=$(patsubst %.cc, %.o, $(b3dsum-src))
+b3dsum: CPPFLAGS+=-I$(top)b3dsum -isystem $(top)b3dsum/tinyopt/include
 b3dsum: $(b3dsum-obj) libblake3d.a
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
