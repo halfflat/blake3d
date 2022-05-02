@@ -1,22 +1,21 @@
 // For now, let's just try to hash a single chunk.
 
 #include <algorithm>
-#include <array>
+#include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include <b3d/b3d.h>
 #include <tinyopt/tinyopt.h>
 
-using std::uint64_t;
-using hash_t = std::array<std::byte, 32>;
 
-hash_t run_one_chunk(const std::byte*, std::size_t) {
-    hash_t h;
-    std::fill(h.begin(), h.end(), std::byte{0});
-    return h;
+b3d::chaining_t run_one_chunk(const std::byte* data, std::size_t sz) {
+    assert(sz<=1024);
+    return b3d::process_chunk(b3d::default_key, 0, data, sz, true);
 }
 
 const char* usage_info =
@@ -73,11 +72,11 @@ int main(int argc, char** argv) {
     }
 
 
-    hash_t result = run_one_chunk(source.data(), source.size());
-
-    for (auto b: result) {
+    b3d::chaining_t result = run_one_chunk(source.data(), source.size());
+    for (auto b: b3d::as_bytes(result)) {
         std::printf("%02hhx", std::to_integer<unsigned char>(b));
     }
     std::puts("");
+
     return 0;
 }

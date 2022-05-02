@@ -5,7 +5,7 @@ top:=$(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 
 all:: libblake3d.a b3dsum unit
 
-lib-src:=nothing.cc
+lib-src:=le_cvt.cc naive.cc
 b3dsum-src:=b3dsum.cc
 unit-src:=unit.cc
 
