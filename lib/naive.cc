@@ -65,7 +65,7 @@ chaining_t compress(chaining_t h, block_t m, uint64_t t, uint32_t b, uint32_t d)
     }
 
     for (unsigned j = 0; j<8; ++j) {
-        h[j] = v[j] + v[j+8];
+        h[j] = v[j] ^ v[j+8];
     }
     return h;
 }
@@ -77,28 +77,28 @@ static constexpr block_t zero_block = {
 
 chaining_t process_chunk(chaining_t h, uint64_t chunk_i, const std::byte* chunk, unsigned sz, bool root_node) {
     assert(sz<=1024);
-    uint32_t root = root_node?ROOT:0;
+    uint32_t endflag = CHUNK_END|(root_node?ROOT:0);
 
     if (sz<=64) {
         block_t m = zero_block;
         memcpy(&m[0], chunk, sz);
-        return compress(h, m, chunk_i, sz, CHUNK_START|CHUNK_END|root);
+        return compress(h, m, chunk_i, sz, CHUNK_START|endflag);
     }
     else {
         unsigned n = 1 + (sz-1)/64;
 
         block_t m;
         memcpy(&m[0], chunk, 64);
-        h = compress(h, m, chunk_i, 64, CHUNK_START|root);
+        h = compress(h, m, chunk_i, 64, CHUNK_START);
 
         for (unsigned i = 1; i<n-1; ++i) {
             memcpy(&m[0], chunk+i*64, 64);
-            h = compress(h, m, chunk_i, 64, root);
+            h = compress(h, m, chunk_i, 64, 0);
         }
 
         m = zero_block;
         memcpy(&m[0], chunk+(n-1)*64, sz-((n-1)*64));
-        h = compress(h, m, chunk_i, 64, CHUNK_END|root);
+        h = compress(h, m, chunk_i, sz-(n-1)*64, endflag);
     }
 
     return h;
