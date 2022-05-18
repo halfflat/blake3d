@@ -5,9 +5,9 @@ top:=$(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 
 all:: libblake3d.a b3dsum unit
 
-lib-src:=le_cvt.cc naive.cc
+lib-src:=data_cvt.cc naive.cc serial_hash_tree.cc
 b3dsum-src:=b3dsum.cc
-unit-src:=unit.cc
+unit-src:=unit.cc test_compress.cc
 
 all-src:=$(lib-src) $(b3dsum-src) $(unit-src)
 all-obj:=$(patsubst %.cc, %.o, $(all-src))

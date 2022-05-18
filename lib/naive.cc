@@ -75,7 +75,7 @@ static constexpr block_t zero_block = {
     0, 0, 0, 0, 0, 0, 0, 0
 };
 
-chaining_t process_chunk(chaining_t h, uint64_t chunk_i, const std::byte* chunk, unsigned sz, bool root_node) {
+chaining_t hash_chunk(chaining_t h, uint64_t chunk_i, const std::byte* chunk, unsigned sz, bool root_node) {
     assert(sz<=1024);
     uint32_t endflag = CHUNK_END|(root_node?ROOT:0);
 

@@ -5,6 +5,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
+#include <filesystem>
+#include <iomanip>
 #include <optional>
 #include <string>
 #include <vector>
@@ -15,7 +18,7 @@
 
 b3d::chaining_t run_one_chunk(const std::byte* data, std::size_t sz) {
     assert(sz<=1024);
-    return b3d::process_chunk(b3d::default_key, 0, data, sz, true);
+    return b3d::hash_chunk(b3d::default_key, 0, data, sz, true);
 }
 
 const char* usage_info =
@@ -25,42 +28,125 @@ const char* usage_info =
     "  -h, --help              print usage information and exit\n"
     "\n"
     "Specify either a FILE or a zero document with -z.\n"
-    "The maximum FILE size or zero length is 1024.\n";
+    "The maximum FILE size or zero length is 1024.\n"
+    "\n"
+    "Debug modes ignore other options and take special parameters:\n"
+    "  --run-compress [h=UINT32,...,UINT32] m=UINT32,...,UINT32 t=UINT64 b=UINT32 d=UINT32\n"
+    "                          Run compression function on a block m of 16\n"
+    "                          4-byte words. The chaining key h is given\n"
+    "                          by 8 4-byte wotrds, defaulting to the IV\n"
+    "                          values. t is the chunk counter, b the block length\n"
+    "                          in bytes (default 64), and d the domain flag word.\n";
+
+struct options {
+    std::string file;
+    std::optional<std::uint64_t> zero;
+
+    bool run_compress = false;
+    // parameters for --run-compress:
+    b3d::chaining_t param_h = b3d::IV;
+    b3d::block_t param_m;
+    std::uint64_t param_t = 0;
+    std::uint32_t param_b = 64;
+    std::uint32_t param_d = 0;
+};
+
+// Custom integer parser accepts octal and hex.
+
+template <typename I>
+to::maybe<I> int_parser(const char* text) {
+    using namespace to;
+
+    if (!text) return nothing;
+    I v;
+    std::istringstream stream(text);
+    if (!(stream >> std::setbase(0) >> v)) return nothing;
+    if (!stream.eof()) stream >> std::ws;
+    return stream.eof()? maybe<I>(v): nothing;
+}
+
+// Return false for early exit.
+bool parse_args(int& argc, char** argv, options& O) {
+    using namespace to::literals;
+    using namespace to;
+
+    std::vector<std::uint32_t> param_h_vec, param_m_vec;
+    auto help = [argv0 = argv[0]] { to::usage(argv0, usage_info); };
+
+    auto parse_u32 = int_parser<std::uint32_t>;
+    auto parse_u64 = int_parser<std::uint64_t>;
+
+    option opts[] = {
+        { action(help), flag, to::exit, "-h", "--help" },
+        { O.zero, "-z", "--zero", when(0) },
+        { O.file, single, when(0) },
+        { set(O.run_compress), flag, "--run-compress", then(1) },
+        // --run-compress mode:
+        { {param_h_vec, delimited(',', parse_u32)}, "h"_long, when(1) },
+        { {param_m_vec, delimited(',', parse_u32)}, "m"_long, when(1) },
+        { {O.param_t, parse_u64}, "t"_long, when(1) },
+        { {O.param_b, parse_u32}, "b"_long, when(1) },
+        { {O.param_d, parse_u32}, "d"_long, when(1) }
+    };
+
+    if (!run(opts, argc, argv+1)) return false;
+    if (argv[1]) throw option_error("unrecognized argument", argv[1]);
+
+    if (O.run_compress) {
+        if (!param_h_vec.empty()) {
+            if (param_h_vec.size()>8) throw option_error("chaining key too long");
+            else {
+                std::copy(param_h_vec.begin(), param_h_vec.end(), O.param_h.begin());
+                std::fill(O.param_h.begin()+param_h_vec.size(), O.param_h.end(), 0);
+            }
+        }
+
+        if (param_m_vec.size()>16) throw option_error("message block too long");
+        else {
+            std::copy(param_m_vec.begin(), param_m_vec.end(), O.param_m.begin());
+            std::fill(O.param_m.begin()+param_m_vec.size(), O.param_m.end(), 0);
+        }
+    }
+    else {
+        if (O.file.empty() ^ !!O.zero) throw option_error("either a FILE or -z must be provied");
+    }
+
+    return true;
+};
+
 
 int main(int argc, char** argv) {
-    std::vector<std::byte> source(1024);
-
     try {
-        auto help = [argv0 = argv[0]] { to::usage(argv0, usage_info); };
+        options O;
+        if (!parse_args(argc, argv, O)) return 0;
 
-        std::string file;
-        std::optional<uint64_t> zero;
-
-        to::option opts[] = {
-            { to::action(help), to::flag, to::exit, "-h", "--help" },
-            { zero, "-z", "--zero" },
-            { file, to::single },
-        };
-
-        if (!to::run(opts, argc, argv+1)) return 0;
-        if (argv[1]) throw to::option_error("unrecogonized argument", argv[1]);
-        if (!(file.empty() ^ !zero)) throw to::option_error("either a FILE or -z must be provied");
-
-        if (zero) {
-            if (zero.value()>source.size()) throw to::option_error("maximum document size is 1024");
-            source.resize(zero.value());
+        if (O.run_compress) {
+            b3d::chaining_t h = b3d::compress(O.param_h, O.param_m, O.param_t, O.param_b, O.param_d);
+            for (auto word: h) std::printf("0x%08x\n", word);
+            return 0;
         }
+
+        std::vector<std::byte> message;
+        if (O.zero) message.resize(O.zero.value());
         else {
-            std::FILE* f = std::fopen(file.c_str(), "rb");
-            if (!f) throw to::option_error("unable to open specified file");
+            std::ifstream in(O.file.c_str(), std::ios::binary|std::ios::ate);
+            if (!in) throw std::runtime_error("unable to open file for reading");
 
-            std::size_t n = std::fread(source.data(), 1, source.size(), f);
-            if (std::ferror(f)) throw std::runtime_error("error reading specified file");
-            if (n==1024 && std::fgetc(f)!=EOF) throw std::runtime_error("maximum document size is 1024");
+            in.exceptions(std::ifstream::failbit);
+            std::streamoff sz = in.tellg();
+            if (sz<0) throw std::runtime_error("error reading file");
 
-            if (n<source.size()) source.resize(n);
-            std::fclose(f);
+            message.resize(sz);
+            in.seekg(0);
+            in.read((char *)message.data(), sz);
         }
+
+        b3d::chaining_t h = b3d::hash(b3d::IV, message.data(), message.size());
+
+        char repn[65];
+        repn[64] = 0;
+        b3d::to_hex_chars(repn, repn+64, b3d::as_bytes(h));
+        std::puts(repn);
     }
     catch (to::option_error& e) {
         to::usage_error(argv[0], usage_info, e.what());
@@ -70,13 +156,6 @@ int main(int argc, char** argv) {
         std::cerr << argv[0] << ": " << e.what() << '\n';
         return 1;
     }
-
-
-    b3d::chaining_t result = run_one_chunk(source.data(), source.size());
-    for (auto b: b3d::as_bytes(result)) {
-        std::printf("%02hhx", std::to_integer<unsigned char>(b));
-    }
-    std::puts("");
 
     return 0;
 }
